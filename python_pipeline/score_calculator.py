@@ -28,10 +28,8 @@ def calculate_scores(merged: pd.DataFrame) -> pd.DataFrame:
 
     df["base_score"] = (df["current_score"] - df.get("prev_movement", 1.5)).round(2)
     df["movement"] = (df["current_score"] - df["base_score"]).round(2)
-    df["offense_score"] = (df["gf"] / df["gf"].max().clip(lower=1) * 100).round(2)
-    df["defense_score"] = (
-        (1 - df["ga"] / df["ga"].max().clip(lower=1)) * 100
-    ).round(2)
+   df["offense_score"] = (df["gf"] / max(df["gf"].max(), 1) * 100).round(2)
+   df["defense_score"] = (df["ga"] / max(df["ga"].max(), 1) * 100).round(2)
     df["ranking_points"] = df["normalized_elo"].round(2)
     df["total_score"] = df["current_score"]
 
