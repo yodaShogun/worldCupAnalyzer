@@ -7,13 +7,13 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
 
-
 def get_connection():
     url = os.environ.get("SUPABASE_DB_URL")
     if not url:
-        raise RuntimeError("SUPABASE_DB_URL is not set")
+        raise ValueError("SUPABASE_DB_URL environment variable is not set")
+    if not url.startswith("postgresql://"):
+        raise ValueError(f"SUPABASE_DB_URL must start with postgresql:// — got: {url[:20]}")
     return psycopg2.connect(url)
-
 
 def upsert_teams(conn, df: pd.DataFrame):
     cur = conn.cursor()
