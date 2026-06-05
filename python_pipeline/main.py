@@ -8,7 +8,7 @@ from datetime import date
 import requests
 
 from db_writer import (
-    get_connection,
+    get_client,
     insert_daily_update,
     insert_ranking_history,
     insert_team_movements,
@@ -46,36 +46,34 @@ def main():
 
     scores = calculate_scores(merged)
 
-    if not os.environ.get("SUPABASE_DB_URL"):
-        print("SUPABASE_DB_URL not set — dry run")
+    if not os.environ.get("SUPABASE_URL"):
+        print("SUPABASE_URL not set — dry run")
         print(scores.head())
         return 0
 
-    conn = get_connection()
-    try:
-        upsert_teams(conn, scores)
-        upsert_team_metrics(conn, scores)
-        insert_team_movements(conn, scores, today)
+    client = get_client()
 
-        history_rows = [
-            (
-                row["team_id"],
-                row["current_score"],
-                int(row.get("current_rank", 0)),
-                int(row["points"]),
-                int(row["gf"]),
-                int(row["ga"]),
-                today,
-            )
-            for _, row in scores.iterrows()
-            if "team_id" in row
-        ]
-        insert_ranking_history(conn, history_rows)
+    upsert_teams(client, scores)
+    upsert_team_metrics(client, scores)
+    insert_team_movements(client, scores, today)
 
-        duration = int(time.time() - start)
-        insert_daily_update(conn, today, len(standings), duration)
-    finally:
-        conn.close()
+    history_rows = [
+        (
+            row["team_id"],
+            row["current_score"],
+            int(row.get("current_rank", 0)),
+            int(row["points"]),
+            int(row["gf"]),
+            int(row["ga"]),
+            today,
+        )
+        for _, row in scores.iterrows()
+        if "team_id" in row
+    ]
+    insert_ranking_history(client, scores, today)
+
+    duration = int(time.time() - start)
+    insert_daily_update(client, today, len(standings), duration)
 
     trigger_revalidation()
     print("Pipeline completed")
