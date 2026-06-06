@@ -69,9 +69,6 @@ def main():
         return 0
 
     # ── STEP 5: fetch team UUIDs from Supabase ────────────────────────
-    # team_id (UUID) is required for team_metrics, ranking_history,
-    # and team_movements. It is not in the scraper output so we fetch
-    # it here and map it onto the scores dataframe via fifa_code.
     client = get_client()
 
     teams_resp = client.table("teams").select("id, fifa_code").execute()
@@ -86,25 +83,23 @@ def main():
     if missing_ids:
         print(f"⚠️  No DB team_id found for fifa_codes: {missing_ids}")
 
-    # Drop rows with no team_id — can't write to DB without UUID
     scores = scores[scores["team_id"].notna()].copy()
     print(f"✅ Matched {len(scores)} teams to Supabase UUIDs")
 
     # ── STEP 6: compute current_rank per group ────────────────────────
-    # Rank teams within each group by current_score descending
-scores["current_rank"] = (
-    scores.groupby("group")["current_score"]
-    .rank(ascending=False, method="first")
-    .astype(int)
-)
+    scores["current_rank"] = (
+        scores.groupby("group")["current_score"]
+        .rank(ascending=False, method="first")
+        .astype(int)
+    )
 
-# Verify every group has exactly ranks 1,2,3,4
-rank_check = scores.groupby("group")["current_rank"].apply(sorted).apply(list)
-for grp, ranks in rank_check.items():
-    if ranks != [1, 2, 3, 4]:
-        print(f"⚠️  Group {grp} ranks wrong: {ranks}")
-    else:
-        print(f"✅ Group {grp} ranks OK: {ranks}")
+    rank_check = scores.groupby("group")["current_rank"].apply(sorted).apply(list)
+    for grp, ranks in rank_check.items():
+        if ranks != [1, 2, 3, 4]:
+            print(f"⚠️  Group {grp} ranks wrong: {ranks}")
+        else:
+            print(f"✅ Group {grp} ranks OK: {ranks}")
+
     # ── STEP 7: write to DB ───────────────────────────────────────────
     upsert_teams(client, scores)
     upsert_team_metrics(client, scores)
