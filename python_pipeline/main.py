@@ -92,12 +92,19 @@ def main():
 
     # ── STEP 6: compute current_rank per group ────────────────────────
     # Rank teams within each group by current_score descending
-    scores["current_rank"] = (
-        scores.groupby("group")["current_score"]
-        .rank(ascending=False, method="min")
-        .astype(int)
-    )
+scores["current_rank"] = (
+    scores.groupby("group")["current_score"]
+    .rank(ascending=False, method="first")
+    .astype(int)
+)
 
+# Verify every group has exactly ranks 1,2,3,4
+rank_check = scores.groupby("group")["current_rank"].apply(sorted).apply(list)
+for grp, ranks in rank_check.items():
+    if ranks != [1, 2, 3, 4]:
+        print(f"⚠️  Group {grp} ranks wrong: {ranks}")
+    else:
+        print(f"✅ Group {grp} ranks OK: {ranks}")
     # ── STEP 7: write to DB ───────────────────────────────────────────
     upsert_teams(client, scores)
     upsert_team_metrics(client, scores)
