@@ -63,16 +63,14 @@ def insert_ranking_history(client: Client, df: pd.DataFrame, today: date):
         rows.append({
             "team_id":       row["team_id"],
             "score":         float(row["current_score"]),
-            "rank":          int(row.get("current_rank", 0)),
+            "rank":          int(row["current_rank"]),
             "points":        int(row["points"]),
-            "goals_for":     int(row["gf"]),               # scraper → "gf"
-            "goals_against": int(row["ga"]),               # scraper → "ga"
+            "goals_for":     int(row["gf"]),
+            "goals_against": int(row["ga"]),
             "snapshot_date": str(today),
         })
     if rows:
-        client.table("ranking_history").upsert(
-            rows, on_conflict="team_id,snapshot_date"
-        ).execute()
+        client.table("ranking_history").insert(rows).execute()
     print(f"✅ inserted {len(rows)} ranking_history rows")
 
 
