@@ -1,4 +1,4 @@
-"""Daily pipeline — updates teams, team_metrics, ranking_history, team_movements."""
+"""Daily pipeline — debug version to trace score calculation."""
 
 import os
 import sys
@@ -39,44 +39,46 @@ def main():
     start = time.time()
     today = date.today()
 
+    # ── STEP 1: scraper ───────────────────────────────────────────────
     standings = scrape_standings()
+    print(f"\n── SCRAPER OUTPUT ({len(standings)} teams) ──")
+    print(standings[["team_name", "fifa_code", "played", "wins", "gf", "ga", "points"]].to_string())
+
+    # ── STEP 2: elo loader ────────────────────────────────────────────
     elo = load_elo_ratings()
+    print(f"\n── ELO OUTPUT ({len(elo)} teams) ──")
+    print(elo.sort_values("elo_rating", ascending=False).head(10).to_string())
+
+    # ── STEP 3: merge ─────────────────────────────────────────────────
     merged = standings.merge(elo, on="team_name", how="left")
+    missing_elo = merged[merged["elo_rating"].isna()]["team_name"].tolist()
+    if missing_elo:
+        print(f"\n⚠️  TEAMS WITH NO ELO MATCH ({len(missing_elo)}): {missing_elo}")
+    else:
+        print(f"\n✅ All {len(merged)} teams matched to Elo ratings")
     merged["elo_rating"] = merged["elo_rating"].fillna(1500)
 
+    # ── STEP 4: score calculation ─────────────────────────────────────
     scores = calculate_scores(merged)
+    print(f"\n── SCORES OUTPUT ──")
+    print(scores[["team_name", "fifa_code", "elo_rating", "normalized_elo", "form_score", "gd_score", "current_score"]].sort_values("current_score", ascending=False).to_string())
 
     if not os.environ.get("SUPABASE_URL"):
-        print("SUPABASE_URL not set — dry run")
-        print(scores.head())
+        print("\nSUPABASE_URL not set — dry run, skipping DB writes")
         return 0
 
+    # ── STEP 5: write to DB ───────────────────────────────────────────
     client = get_client()
-
     upsert_teams(client, scores)
     upsert_team_metrics(client, scores)
     insert_team_movements(client, scores, today)
-
-    history_rows = [
-        (
-            row["team_id"],
-            row["current_score"],
-            int(row.get("current_rank", 0)),
-            int(row["points"]),
-            int(row["gf"]),
-            int(row["ga"]),
-            today,
-        )
-        for _, row in scores.iterrows()
-        if "team_id" in row
-    ]
     insert_ranking_history(client, scores, today)
 
     duration = int(time.time() - start)
     insert_daily_update(client, today, len(standings), duration)
 
     trigger_revalidation()
-    print("Pipeline completed")
+    print("\n✅ Pipeline completed")
     return 0
 
 
