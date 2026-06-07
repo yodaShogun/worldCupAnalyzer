@@ -70,7 +70,7 @@ def insert_ranking_history(client: Client, df: pd.DataFrame, today: date):
             "snapshot_date": str(today),
         })
     if rows:
-        client.table("ranking_history").insert(rows).execute()
+        client.table("ranking_history").upsert(rows, on_conflict="team_id,snapshot_date").execute()
     print(f"✅ inserted {len(rows)} ranking_history rows")
 
 
