@@ -1,261 +1,214 @@
 """
-FBref 2026 FIFA World Cup standings scraper — robust version.
-Handles multiple FBref table structures and group detection methods.
+2026 FIFA World Cup standings scraper using football-data.org API.
+Free tier: 10 requests/minute. No IP blocking. No scraping needed.
+Sign up at football-data.org to get a free API key.
+Add it to GitHub secrets as FOOTBALL_DATA_API_KEY.
 """
 
-import re
+import os
 import time
 from typing import Optional
 
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 
-FBREF_URL = "https://fbref.com/en/comps/1/group-stage/World-Cup-Stats"
+# football-data.org 2026 World Cup endpoint
+# Competition code for FIFA World Cup is "WC"
+API_BASE = "https://api.football-data.org/v4"
+WC_CODE  = "WC"
 
-# FBref name → your exact Supabase teams.name
+# football-data.org team name → your exact Supabase teams.name
 TEAM_NAME_MAP = {
-    "United States":          "United States",
-    "México":                 "Mexico",
-    "Mexico":                 "Mexico",
-    "Canada":                 "Canada",
-    "Brazil":                 "Brazil",
-    "Argentina":              "Argentina",
-    "Colombia":               "Colombia",
-    "Ecuador":                "Ecuador",
-    "France":                 "France",
-    "Germany":                "Germany",
-    "Portugal":               "Portugal",
-    "Belgium":                "Belgium",
-    "Spain":                  "Spain",
-    "England":                "England",
-    "Netherlands":            "Netherlands",
-    "Croatia":                "Croatia",
-    "Japan":                  "Japan",
-    "Korea Republic":         "South Korea",
-    "South Korea":            "South Korea",
-    "Australia":              "Australia",
-    "IR Iran":                "Iran",
-    "Iran":                   "Iran",
-    "Morocco":                "Morocco",
-    "Senegal":                "Senegal",
-    "Egypt":                  "Egypt",
-    "Switzerland":            "Switzerland",
-    "Turkey":                 "Turkey",
-    "Türkiye":                "Turkey",
-    "Uruguay":                "Uruguay",
-    "Saudi Arabia":           "Saudi Arabia",
-    "Norway":                 "Norway",
-    "Sweden":                 "Sweden",
-    "Tunisia":                "Tunisia",
-    "New Zealand":            "New Zealand",
-    "South Africa":           "South Africa",
-    "DR Congo":               "DR Congo",
-    "Bosnia-Herzegovina":     "Bosnia and Herzegovina",
-    "Bosnia and Herzegovina": "Bosnia and Herzegovina",
-    "Haiti":                  "Haiti",
-    "Uzbekistan":             "Uzbekistan",
-    "Curaçao":                "Curacao",
-    "Curacao":                "Curacao",
-    "Cape Verde":             "Cape Verde",
-    "Jordan":                 "Jordan",
-    "Panama":                 "Panama",
-    "Paraguay":               "Paraguay",
-    "Algeria":                "Algeria",
-    "Austria":                "Austria",
-    "Czech Republic":         "Czechia",
-    "Czechia":                "Czechia",
-    "Scotland":               "Scotland",
-    "Ghana":                  "Ghana",
-    "Côte d'Ivoire":          "Ivory Coast",
-    "Ivory Coast":            "Ivory Coast",
-    "Qatar":                  "Qatar",
-    "Iraq":                   "Iraq",
-    "Cameroon":               "Cameroon",
-    "Nigeria":                "Nigeria",
-    "Honduras":               "Honduras",
-    "Chile":                  "Chile",
-    "Bolivia":                "Bolivia",
-    "Denmark":                "Denmark",
-    "Ukraine":                "Ukraine",
-    "Italy":                  "Italy",
+    "Mexico":                  "Mexico",
+    "South Africa":            "South Africa",
+    "Korea Republic":          "South Korea",
+    "South Korea":             "South Korea",
+    "Czech Republic":          "Czechia",
+    "Czechia":                 "Czechia",
+    "Canada":                  "Canada",
+    "Bosnia and Herzegovina":  "Bosnia and Herzegovina",
+    "Qatar":                   "Qatar",
+    "Switzerland":             "Switzerland",
+    "Brazil":                  "Brazil",
+    "Morocco":                 "Morocco",
+    "Haiti":                   "Haiti",
+    "Scotland":                "Scotland",
+    "United States":           "United States",
+    "USA":                     "United States",
+    "Paraguay":                "Paraguay",
+    "Australia":               "Australia",
+    "Turkey":                  "Turkey",
+    "Türkiye":                 "Turkey",
+    "Germany":                 "Germany",
+    "Curaçao":                 "Curacao",
+    "Curacao":                 "Curacao",
+    "Côte d'Ivoire":           "Ivory Coast",
+    "Ivory Coast":             "Ivory Coast",
+    "Ecuador":                 "Ecuador",
+    "Netherlands":             "Netherlands",
+    "Japan":                   "Japan",
+    "Sweden":                  "Sweden",
+    "Tunisia":                 "Tunisia",
+    "Belgium":                 "Belgium",
+    "Egypt":                   "Egypt",
+    "Iran":                    "Iran",
+    "IR Iran":                 "Iran",
+    "New Zealand":             "New Zealand",
+    "Spain":                   "Spain",
+    "Cape Verde":              "Cape Verde",
+    "Saudi Arabia":            "Saudi Arabia",
+    "Uruguay":                 "Uruguay",
+    "France":                  "France",
+    "Senegal":                 "Senegal",
+    "Iraq":                    "Iraq",
+    "Norway":                  "Norway",
+    "Argentina":               "Argentina",
+    "Algeria":                 "Algeria",
+    "Austria":                 "Austria",
+    "Jordan":                  "Jordan",
+    "Portugal":                "Portugal",
+    "DR Congo":                "DR Congo",
+    "Uzbekistan":              "Uzbekistan",
+    "Colombia":                "Colombia",
+    "England":                 "England",
+    "Croatia":                 "Croatia",
+    "Ghana":                   "Ghana",
+    "Panama":                  "Panama",
 }
 
-# Supabase teams.name → fifa_code
 NAME_TO_FIFA = {
-    "Mexico":                 "MEX",
-    "South Africa":           "RSA",
-    "South Korea":            "KOR",
-    "Czechia":                "CZE",
-    "Canada":                 "CAN",
-    "Bosnia and Herzegovina": "BIH",
-    "Qatar":                  "QAT",
-    "Switzerland":            "SUI",
-    "Brazil":                 "BRA",
-    "Morocco":                "MAR",
-    "Haiti":                  "HAI",
-    "Scotland":               "SCO",
-    "United States":          "USA",
-    "Paraguay":               "PAR",
-    "Australia":              "AUS",
-    "Turkey":                 "TUR",
-    "Germany":                "GER",
-    "Curacao":                "CUW",
-    "Ivory Coast":            "CIV",
-    "Ecuador":                "ECU",
-    "Netherlands":            "NED",
-    "Japan":                  "JPN",
-    "Sweden":                 "SWE",
-    "Tunisia":                "TUN",
-    "Belgium":                "BEL",
-    "Egypt":                  "EGY",
-    "Iran":                   "IRN",
-    "New Zealand":            "NZL",
-    "Spain":                  "ESP",
-    "Cape Verde":             "CPV",
-    "Saudi Arabia":           "KSA",
-    "Uruguay":                "URU",
-    "France":                 "FRA",
-    "Senegal":                "SEN",
-    "Iraq":                   "IRQ",
-    "Norway":                 "NOR",
-    "Argentina":              "ARG",
-    "Algeria":                "ALG",
-    "Austria":                "AUT",
-    "Jordan":                 "JOR",
-    "Portugal":               "POR",
-    "DR Congo":               "COD",
-    "Uzbekistan":             "UZB",
-    "Colombia":               "COL",
-    "England":                "ENG",
-    "Croatia":                "CRO",
-    "Ghana":                  "GHA",
-    "Panama":                 "PAN",
+    "Mexico":                  "MEX",
+    "South Africa":            "RSA",
+    "South Korea":             "KOR",
+    "Czechia":                 "CZE",
+    "Canada":                  "CAN",
+    "Bosnia and Herzegovina":  "BIH",
+    "Qatar":                   "QAT",
+    "Switzerland":             "SUI",
+    "Brazil":                  "BRA",
+    "Morocco":                 "MAR",
+    "Haiti":                   "HAI",
+    "Scotland":                "SCO",
+    "United States":           "USA",
+    "Paraguay":                "PAR",
+    "Australia":               "AUS",
+    "Turkey":                  "TUR",
+    "Germany":                 "GER",
+    "Curacao":                 "CUW",
+    "Ivory Coast":             "CIV",
+    "Ecuador":                 "ECU",
+    "Netherlands":             "NED",
+    "Japan":                   "JPN",
+    "Sweden":                  "SWE",
+    "Tunisia":                 "TUN",
+    "Belgium":                 "BEL",
+    "Egypt":                   "EGY",
+    "Iran":                    "IRN",
+    "New Zealand":             "NZL",
+    "Spain":                   "ESP",
+    "Cape Verde":              "CPV",
+    "Saudi Arabia":            "KSA",
+    "Uruguay":                 "URU",
+    "France":                  "FRA",
+    "Senegal":                 "SEN",
+    "Iraq":                    "IRQ",
+    "Norway":                  "NOR",
+    "Argentina":               "ARG",
+    "Algeria":                 "ALG",
+    "Austria":                 "AUT",
+    "Jordan":                  "JOR",
+    "Portugal":                "POR",
+    "DR Congo":                "COD",
+    "Uzbekistan":              "UZB",
+    "Colombia":                "COL",
+    "England":                 "ENG",
+    "Croatia":                 "CRO",
+    "Ghana":                   "GHA",
+    "Panama":                  "PAN",
+}
+
+# football-data.org group stage group names → letter
+GROUP_MAP = {
+    "Group A": "A", "Group B": "B", "Group C": "C", "Group D": "D",
+    "Group E": "E", "Group F": "F", "Group G": "G", "Group H": "H",
+    "Group I": "I", "Group J": "J", "Group K": "K", "Group L": "L",
 }
 
 
-def _parse_int(val) -> int:
-    try:
-        text = str(val).strip().replace("+", "")
-        return int(float(text)) if text and text != "-" else 0
-    except (ValueError, TypeError):
-        return 0
+def scrape_standings(api_key: Optional[str] = None) -> pd.DataFrame:
+    """
+    Fetches 2026 World Cup group standings from football-data.org API.
+    Falls back to static data if API is unavailable.
+    """
+    key = api_key or os.environ.get("FOOTBALL_DATA_API_KEY")
 
+    if not key:
+        print("⚠️  FOOTBALL_DATA_API_KEY not set — using static fallback")
+        return _static_fallback()
 
-def scrape_standings(url: Optional[str] = None) -> pd.DataFrame:
-    target = url or FBREF_URL
+    headers = {
+        "X-Auth-Token": key,
+        "Content-Type": "application/json",
+    }
+
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        resp = requests.get(target, headers=headers, timeout=30)
+        # Fetch standings from the group stage
+        url = f"{API_BASE}/competitions/{WC_CODE}/standings?season=2026"
+        resp = requests.get(url, headers=headers, timeout=30)
+
+        print(f"API response: {resp.status_code}")
+
+        if resp.status_code == 404:
+            print("⚠️  2026 WC not found on API yet — trying without season filter")
+            url = f"{API_BASE}/competitions/{WC_CODE}/standings"
+            resp = requests.get(url, headers=headers, timeout=30)
+            print(f"API response (no season): {resp.status_code}")
+
         resp.raise_for_status()
+        data = resp.json()
 
-        print(f"FBref response: {resp.status_code}, {len(resp.text)} chars")
+        standings_data = data.get("standings", [])
+        if not standings_data:
+            print("⚠️  No standings data in API response — using static fallback")
+            return _static_fallback()
 
-        soup = BeautifulSoup(resp.text, "html.parser")
         rows = []
+        for group in standings_data:
+            group_name = group.get("group", "")
+            group_letter = GROUP_MAP.get(group_name)
 
-        # ── Strategy 1: find tables by id pattern ────────────────────
-        # FBref uses ids like "results2026-06-011_overall" or "group_A" etc.
-        all_tables = soup.find_all("table")
-        print(f"Found {len(all_tables)} tables on page")
-
-        for table in all_tables:
-            table_id = table.get("id", "")
-            caption = table.find("caption")
-            caption_text = caption.get_text(strip=True) if caption else ""
-
-            # Detect group letter from table id or caption
-            group_letter = None
-
-            # Try caption: "Group A", "Group B" etc.
-            cap_match = re.search(r"Group\s+([A-L])", caption_text, re.IGNORECASE)
-            if cap_match:
-                group_letter = cap_match.group(1).upper()
-
-            # Try table id: "results_groupA", "group_A_overall" etc.
-            if not group_letter:
-                id_match = re.search(r"[Gg]roup[_\-]?([A-L])", table_id)
-                if id_match:
-                    group_letter = id_match.group(1).upper()
-
-            # Try nearest preceding h2/h3
-            if not group_letter:
-                for tag in table.find_all_previous(["h2", "h3", "h4"]):
-                    text = tag.get_text(strip=True)
-                    match = re.search(r"Group\s+([A-L])\b", text, re.IGNORECASE)
-                    if match:
-                        group_letter = match.group(1).upper()
-                        break
+            # Some APIs return "GROUP_A" format
+            if not group_letter and "GROUP_" in group_name.upper():
+                group_letter = group_name.upper().replace("GROUP_", "")
 
             if not group_letter:
+                print(f"⚠️  Unknown group name: '{group_name}'")
                 continue
 
-            # Parse table rows
-            tbody = table.find("tbody")
-            if not tbody:
-                continue
-
-            team_rows = tbody.find_all("tr")
-            parsed_count = 0
-
-            for tr in team_rows:
-                # Skip spacer rows
-                if tr.get("class") and "spacer" in " ".join(tr.get("class")):
-                    continue
-
-                cells = tr.find_all(["td", "th"])
-                if len(cells) < 9:
-                    continue
-
-                # Try to find team name — FBref puts it in <td data-stat="team">
-                team_cell = tr.find(["td", "th"], {"data-stat": "team"})
-                if team_cell:
-                    raw_name = team_cell.get_text(strip=True)
-                else:
-                    raw_name = cells[0].get_text(strip=True)
-
-                if not raw_name or raw_name in ("#", "Squad", "Team"):
-                    continue
+            for entry in group.get("table", []):
+                team_data = entry.get("team", {})
+                raw_name = team_data.get("name", "") or team_data.get("shortName", "")
 
                 team_name = TEAM_NAME_MAP.get(raw_name, raw_name)
                 fifa_code = NAME_TO_FIFA.get(team_name)
 
                 if not fifa_code:
-                    print(f"⚠️  Unknown: '{raw_name}' → '{team_name}'")
+                    print(f"⚠️  Unknown team: '{raw_name}' → '{team_name}'")
                     continue
 
-                # Extract stats by data-stat attribute (most reliable)
-                def get_stat(stat_name: str) -> int:
-                    cell = tr.find(["td", "th"], {"data-stat": stat_name})
-                    if cell:
-                        return _parse_int(cell.get_text())
-                    return 0
-
-                mp     = get_stat("mp") or get_stat("games")
-                wins   = get_stat("wins") or get_stat("w")
-                draws  = get_stat("draws") or get_stat("d")
-                losses = get_stat("losses") or get_stat("l")
-                gf     = get_stat("goals_for") or get_stat("gf")
-                ga     = get_stat("goals_against") or get_stat("ga")
-                gd_raw = tr.find(["td", "th"], {"data-stat": "goal_diff"}) or \
-                         tr.find(["td", "th"], {"data-stat": "gd"})
-                gd     = _parse_int(gd_raw.get_text()) if gd_raw else gf - ga
-                pts    = get_stat("points") or get_stat("pts")
+                played = entry.get("playedGames", 0)
+                wins   = entry.get("won", 0)
+                draws  = entry.get("draw", 0)
+                losses = entry.get("lost", 0)
+                gf     = entry.get("goalsFor", 0)
+                ga     = entry.get("goalsAgainst", 0)
+                gd     = entry.get("goalDifference", 0)
+                points = entry.get("points", 0)
 
                 rows.append((
                     team_name, fifa_code, group_letter,
-                    mp, wins, draws, losses, gf, ga, gd, pts
+                    played, wins, draws, losses, gf, ga, gd, points
                 ))
-                parsed_count += 1
-
-            if parsed_count > 0:
-                print(f"  Group {group_letter}: parsed {parsed_count} teams")
 
         cols = [
             "team_name", "fifa_code", "group",
@@ -265,24 +218,21 @@ def scrape_standings(url: Optional[str] = None) -> pd.DataFrame:
 
         if len(rows) >= 4:
             df = pd.DataFrame(rows, columns=cols)
-            # Deduplicate — keep last occurrence per fifa_code
             df = df.drop_duplicates(subset="fifa_code", keep="last")
-            print(f"✅ Scraped {len(df)} teams from FBref")
 
-            # If we got partial data, fill missing teams from fallback
             if len(df) < 48:
-                print(f"⚠️  Only {len(df)} teams scraped, merging with fallback")
+                print(f"⚠️  API returned {len(df)} teams — merging with fallback")
                 fallback = _static_fallback()
                 missing = fallback[~fallback["fifa_code"].isin(df["fifa_code"])]
                 df = pd.concat([df, missing], ignore_index=True)
-                print(f"✅ Merged to {len(df)} teams total")
 
+            print(f"✅ Fetched {len(df)} teams from football-data.org")
             return df
 
-        print(f"⚠️  Only {len(rows)} rows parsed — using static fallback")
+        print(f"⚠️  API returned {len(rows)} rows — using static fallback")
 
     except Exception as exc:
-        print(f"⚠️  FBref scrape failed: {exc}")
+        print(f"⚠️  API call failed: {exc}")
         import traceback
         traceback.print_exc()
 
@@ -346,5 +296,4 @@ def _static_fallback() -> pd.DataFrame:
         "played", "wins", "draws", "losses",
         "gf", "ga", "gd", "points",
     ]
-    print(f"⚠️  Using static fallback for all 48 teams")
     return pd.DataFrame(rows, columns=cols)
